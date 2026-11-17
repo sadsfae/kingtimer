@@ -14,6 +14,8 @@ the next kill.
   `sudo pacman -S python tk`)
 - One playback tool for the alert sound: `paplay` (PipeWire/PulseAudio),
   `aplay` (ALSA), or `play` (SoX)
+- Optional: `notify-send` or the Omarchy shell, so the alarm also pops a
+  desktop notification (visible even over a fullscreen game)
 - Nothing else: everything is Python standard library, no pip packages
 
 The alert sound is `alert.wav`, included in the repo next to `kingtimer.py`.

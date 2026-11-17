@@ -103,6 +103,7 @@ class GragnarApp:
         self.stop_sound = None
         self.sound_thread = None
         self.player = find_player()
+        self.notifier = shutil.which("omarchy-notification-send") or shutil.which("notify-send")
         self.dark = False
         self.colors = {
             "light": {"bg": "#f2f2f2", "fg": "#1c1c1c", "muted": "#5f5f5f", "btn": "#e0e0e0", "btn_active": "#cfcfcf"},
@@ -249,6 +250,12 @@ class GragnarApp:
         self.stop_sound = threading.Event()
         self.sound_thread = threading.Thread(target=self._sound_loop, daemon=True)
         self.sound_thread.start()
+        if self.notifier:
+            subprocess.Popen(
+                [self.notifier, "-u", "critical", "KING GRAGNARR IN 20 SECONDS", "Click OK in Kingtimer to stop the alarm"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
         print("[gragnar] ALERT - timer done", flush=True)
 
         c = self.current_colors
