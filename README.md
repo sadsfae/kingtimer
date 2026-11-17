@@ -27,16 +27,12 @@ If it is missing, a chime is generated on the fly.
 python3 kingtimer.py
 ```
 
-## Default log file
+## Log file
 
-Kingtimer watches Aptom's log by default:
-
-```
-/home/wfoster/.wine/drive_c/Program Files/Everquest_P99/Logs/eqlog_Aptom_project1999.txt
-```
-
-In a shell, quote the path or escape the space (`Program\ Files`). Pick any
-other character's log with the gear button or `--log PATH`.
+Kingtimer ships with a default Project 1999 EQ log path
+(`~/.wine/drive_c/Program Files/Everquest_P99/Logs/eqlog_<char>_project1999.txt`).
+Use the gear button or `--log PATH` to point at your character's log. In a
+shell, quote paths that contain spaces or escape them (`Program\ Files`).
 
 ## How it works
 
