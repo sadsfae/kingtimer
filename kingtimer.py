@@ -1,0 +1,287 @@
+#!/usr/bin/env python3
+"""Alert 48 minutes after King Gragnarr is slain (P99 EQ log watcher)."""
+
+import argparse
+import atexit
+import json
+import math
+import os
+import re
+import shutil
+import struct
+import subprocess
+import tempfile
+import threading
+import time
+import tkinter as tk
+import wave
+from tkinter import filedialog, ttk
+
+DEFAULT_LOG = "/home/wfoster/.wine/drive_c/Program Files/Everquest_P99/Logs/eqlog_Aptom_project1999.txt"
+CONFIG_PATH = os.path.expanduser("~/.config/gragnar_timer.json")
+
+
+def load_log_config():
+    try:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            path = json.load(f).get("log")
+    except (OSError, ValueError):
+        return None
+    return path if path and os.path.exists(path) else None
+
+
+def save_log_config(path):
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump({"log": path}, f)
+
+
+KILL_RE = re.compile(r"king gragnar", re.IGNORECASE)  # matches Gragnar and Gragnarr
+STAMP_RE = re.compile(r"\[(.*?)\]")
+
+
+def fmt_time(sec):
+    return f"{sec // 60:02d}:{sec % 60:02d}"
+
+
+def read_new(path, offset):
+    """Return (new_offset, lines) for content appended after offset."""
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return offset, []
+    if size < offset:  # log truncated/recreated
+        offset = 0
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        f.seek(offset)
+        data = f.read()
+        pos = f.tell()
+    return pos, data.splitlines()
+
+
+def find_player():
+    for cmd in (["paplay"], ["aplay", "-q"], ["play", "-q"]):
+        if shutil.which(cmd[0]):
+            return cmd
+    return None
+
+
+def make_alarm_wav(path, rate=22050):
+    """C-E-G chime, ~1.5 s, looped by replaying."""
+    samples = []
+
+    def tone(freq, dur, vol=0.5):
+        n = int(rate * dur)
+        fade = max(1, int(rate * 0.01))
+        for i in range(n):
+            env = min(1.0, i / fade, (n - i) / fade)
+            samples.append(vol * env * math.sin(2 * math.pi * freq * i / rate))
+
+    tone(523.25, 0.18)
+    tone(659.25, 0.18)
+    tone(783.99, 0.32)
+    samples.extend([0.0] * int(rate * 0.8))
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(struct.pack(f"<{len(samples)}h", *[int(s * 32767) for s in samples]))
+
+
+class GragnarApp:
+    def __init__(self, root, log_path, alert_seconds):
+        self.root = root
+        self.log_path = log_path
+        self.alert_seconds = alert_seconds
+        self.watching = False
+        self.offset = 0
+        self.deadline = None
+        self.alert_open = False
+        self.alert_dialog = None
+        self.stop_sound = None
+        self.sound_thread = None
+        self.player = find_player()
+        fd, self.wav_path = tempfile.mkstemp(prefix="gragnar-", suffix=".wav")
+        os.close(fd)
+        make_alarm_wav(self.wav_path)
+        atexit.register(self._cleanup)
+        self._build_ui()
+        self.root.after(250, self._poll)
+
+    def _build_ui(self):
+        self.root.title("Gragnar Timer")
+        self.root.resizable(False, False)
+        style = ttk.Style(self.root)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+        style.configure("Start.TButton", background="#43a047", foreground="#ffffff", padding=(16, 6))
+        style.map("Start.TButton", background=[("active", "#2e7d32")])
+        style.configure("Stop.TButton", background="#e53935", foreground="#ffffff", padding=(16, 6))
+        style.map("Stop.TButton", background=[("active", "#b71c1c")])
+
+        frame = ttk.Frame(self.root, padding=8)
+        frame.pack(fill="both", expand=True)
+
+        self.time_var = tk.StringVar(value="--:--")
+        tk.Label(frame, textvariable=self.time_var, font=("DejaVu Sans", 18, "bold")).pack(side="left")
+
+        self.status_var = tk.StringVar(value="Not watching")
+        tk.Label(frame, textvariable=self.status_var, font=("DejaVu Sans", 9)).pack(side="left", padx=(10, 0))
+
+        self.gear_btn = ttk.Button(frame, text="\u2699", width=2, command=self.pick_log)
+        self.gear_btn.pack(side="right", padx=(0, 4))
+        self.toggle_btn = ttk.Button(frame, text="Start", style="Start.TButton", command=self.toggle)
+        self.toggle_btn.pack(side="right", padx=(4, 0))
+        self.toggle_btn.focus_set()
+
+    def start(self):
+        if self.watching:
+            return
+        if not os.path.exists(self.log_path):
+            self.status_var.set("Log file not found - is EQ logging (/log)?")
+            return
+        with open(self.log_path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            self.offset = f.tell()
+        self.watching = True
+        self.deadline = None
+        self.time_var.set("--:--")
+        self.status_var.set("Watching for the kill message...")
+        self.toggle_btn.configure(text="Stop", style="Stop.TButton")
+        print(f"[gragnar] watching {self.log_path}", flush=True)
+
+    def stop(self):
+        self.watching = False
+        self.deadline = None
+        self._stop_sound()
+        if self.alert_dialog is not None:
+            self.alert_dialog.destroy()
+            self.alert_dialog = None
+        self.alert_open = False
+        self.time_var.set("--:--")
+        self.status_var.set("Not watching")
+        self.root.title("Gragnar Timer")
+        self.toggle_btn.configure(text="Start", style="Start.TButton")
+        print("[gragnar] stopped", flush=True)
+
+    def toggle(self):
+        self.start() if not self.watching else self.stop()
+
+    def pick_log(self):
+        path = filedialog.askopenfilename(
+            title="Select EQ log file",
+            initialdir=os.path.dirname(self.log_path),
+            filetypes=[("EQ logs", "eqlog_*.txt"), ("All files", "*.*")],
+        )
+        if path:
+            self.set_log(path)
+            print(f"[gragnar] log set to {path}", flush=True)
+
+    def set_log(self, path):
+        self.log_path = path
+        save_log_config(path)
+        if self.watching:
+            with open(path, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                self.offset = f.tell()
+            if self.deadline is None:
+                self.status_var.set("Watching for the kill message...")
+
+    def _poll(self):
+        if self.watching and not self.alert_open:
+            self.offset, lines = read_new(self.log_path, self.offset)
+            for line in lines:
+                if "slain" in line and KILL_RE.search(line):
+                    m = STAMP_RE.match(line)
+                    stamp = m.group(1) if m else time.strftime("%H:%M:%S")
+                    self.deadline = time.time() + self.alert_seconds
+                    self.status_var.set(f"Slain at {stamp} - respawn in {fmt_time(self.alert_seconds)}")
+                    print(f"[gragnar] slain detected at {stamp}", flush=True)
+                    break
+            if self.deadline is not None:
+                rem = int(self.deadline - time.time())
+                self.time_var.set(fmt_time(max(rem, 0)))
+                if rem <= 0:
+                    self._alert()
+        self.root.after(250, self._poll)
+
+    def _alert(self):
+        if self.alert_open:
+            return
+        self.alert_open = True
+        self.time_var.set("00:00")
+        self.status_var.set("KING GRAGNARR IS UP!")
+        self.root.title("!!! KING GRAGNARR IS UP !!!")
+        self.stop_sound = threading.Event()
+        self.sound_thread = threading.Thread(target=self._sound_loop, daemon=True)
+        self.sound_thread.start()
+        print("[gragnar] ALERT - timer done", flush=True)
+
+        dlg = tk.Toplevel(self.root)
+        self.alert_dialog = dlg
+        dlg.title("King Gragnarr!")
+        dlg.transient(self.root)
+        dlg.attributes("-topmost", True)
+        dlg.resizable(False, False)
+        tk.Label(dlg, text="KING GRAGNARR IS UP", font=("DejaVu Sans", 18, "bold"), fg="#b71c1c").pack(
+            padx=28, pady=(20, 4)
+        )
+        tk.Label(dlg, text=f"{self.alert_seconds // 60} minutes have passed since the kill.", font=("DejaVu Sans", 11)).pack(
+            pady=(0, 14)
+        )
+        ok = ttk.Button(dlg, text="OK", command=self.dismiss_alert)
+        ok.pack(pady=(0, 18))
+        dlg.protocol("WM_DELETE_WINDOW", self.dismiss_alert)
+        ok.focus_set()
+        dlg.bind("<Return>", lambda e: self.dismiss_alert())
+        dlg.grab_set()
+
+    def dismiss_alert(self):
+        self._stop_sound()
+        self.alert_open = False
+        self.deadline = None
+        if self.alert_dialog is not None:
+            self.alert_dialog.destroy()
+            self.alert_dialog = None
+        self.root.title("Gragnar Timer")
+        self.time_var.set("--:--")
+        self.status_var.set("Watching for the next kill...")
+        print("[gragnar] alarm dismissed", flush=True)
+
+    def _sound_loop(self):
+        ev = self.stop_sound
+        while not ev.is_set():
+            p = subprocess.Popen(self.player + [self.wav_path])
+            while p.poll() is None:
+                if ev.is_set():
+                    p.terminate()
+                    break
+                time.sleep(0.1)
+
+    def _stop_sound(self):
+        if self.stop_sound is not None:
+            self.stop_sound.set()
+            self.stop_sound = None
+
+    def _cleanup(self):
+        self._stop_sound()
+        try:
+            os.unlink(self.wav_path)
+        except OSError:
+            pass
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Alert 48 minutes after King Gragnarr is slain")
+    parser.add_argument("--log", default=load_log_config() or DEFAULT_LOG)
+    parser.add_argument("--alert-seconds", type=int, default=2880)
+    args = parser.parse_args()
+    root = tk.Tk(className="gragnar_timer")
+    GragnarApp(root, args.log, args.alert_seconds)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()

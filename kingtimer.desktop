@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=Gragnar Timer
+Comment=Alert 48 minutes after King Gragnar is slain
+Exec=/usr/bin/python3 /home/wfoster/git_modules/kingtimer/kingtimer.py
+Path=/home/wfoster/git_modules/kingtimer/
+Icon=/usr/share/icons/Adwaita/symbolic/status/alarm-symbolic.svg
+Terminal=false
+Type=Application
+Categories=Game;
