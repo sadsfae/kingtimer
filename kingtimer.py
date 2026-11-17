@@ -153,7 +153,7 @@ class GragnarApp:
         self.gear_btn = ttk.Button(frame, text="\u2699", width=2, command=self.pick_log)
         self.gear_btn.pack(side="right", padx=(0, 4))
         self.moon_btn = ttk.Button(frame, text="\u263e", width=2, command=self.toggle_theme)
-        self.moon_btn.pack(side="right")
+        self.moon_btn.pack(side="right", padx=(16, 4))
         self.toggle_btn = ttk.Button(frame, text="Start", style="Start.TButton", command=self.toggle)
         self.toggle_btn.pack(side="right", padx=(4, 0))
         self.toggle_btn.focus_set()

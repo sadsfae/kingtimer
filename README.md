@@ -77,3 +77,7 @@ mv kingtimer.desktop ~/.local/share/applications/
 chmod +x ~/.local/share/applications/kingtimer.desktop
 update-desktop-database ~/.local/share/applications/
 ```
+
+## Screenshots
+
+![Kingtimer light and dark mode](image/kingtimer.png)
