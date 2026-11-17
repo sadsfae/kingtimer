@@ -27,6 +27,17 @@ If it is missing, a chime is generated on the fly.
 python3 kingtimer.py
 ```
 
+## Default log file
+
+Kingtimer watches Aptom's log by default:
+
+```
+/home/wfoster/.wine/drive_c/Program Files/Everquest_P99/Logs/eqlog_Aptom_project1999.txt
+```
+
+In a shell, quote the path or escape the space (`Program\ Files`). Pick any
+other character's log with the gear button or `--log PATH`.
+
 ## How it works
 
 - Start: remembers the current end of the log, so only lines appended after
@@ -59,7 +70,11 @@ Terminal=false
 Type=Application
 Categories=Game;
 EOF
+```
 
+Then install it (directory and permissions):
+
+```bash
 mkdir -p ~/.local/share/applications/
 mv kingtimer.desktop ~/.local/share/applications/
 chmod +x ~/.local/share/applications/kingtimer.desktop
