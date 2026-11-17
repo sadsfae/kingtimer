@@ -19,6 +19,7 @@ from tkinter import filedialog, ttk
 
 DEFAULT_LOG = "/home/wfoster/.wine/drive_c/Program Files/Everquest_P99/Logs/eqlog_Aptom_project1999.txt"
 CONFIG_PATH = os.path.expanduser("~/.config/gragnar_timer.json")
+SOUND_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "alert.wav")
 
 
 def load_log_config():
@@ -89,10 +90,11 @@ def make_alarm_wav(path, rate=22050):
 
 
 class GragnarApp:
-    def __init__(self, root, log_path, alert_seconds):
+    def __init__(self, root, log_path, alert_seconds, alert_early=20):
         self.root = root
         self.log_path = log_path
         self.alert_seconds = alert_seconds
+        self.alert_early = alert_early
         self.watching = False
         self.offset = 0
         self.deadline = None
@@ -101,9 +103,20 @@ class GragnarApp:
         self.stop_sound = None
         self.sound_thread = None
         self.player = find_player()
-        fd, self.wav_path = tempfile.mkstemp(prefix="gragnar-", suffix=".wav")
-        os.close(fd)
-        make_alarm_wav(self.wav_path)
+        self.dark = False
+        self.colors = {
+            "light": {"bg": "#f2f2f2", "fg": "#1c1c1c", "muted": "#5f5f5f", "btn": "#e0e0e0", "btn_active": "#cfcfcf"},
+            "dark": {"bg": "#232323", "fg": "#ececec", "muted": "#a8a8a8", "btn": "#3a3a3a", "btn_active": "#4a4a4a"},
+        }
+        self.current_colors = self.colors["light"]
+        if os.path.exists(SOUND_PATH):
+            self.wav_path = SOUND_PATH
+            self._owns_wav = False
+        else:
+            fd, self.wav_path = tempfile.mkstemp(prefix="gragnar-", suffix=".wav")
+            os.close(fd)
+            make_alarm_wav(self.wav_path)
+            self._owns_wav = True
         atexit.register(self._cleanup)
         self._build_ui()
         self.root.after(250, self._poll)
@@ -111,30 +124,35 @@ class GragnarApp:
     def _build_ui(self):
         self.root.title("Gragnar Timer")
         self.root.resizable(False, False)
-        style = ttk.Style(self.root)
+        self.style = ttk.Style(self.root)
         try:
-            style.theme_use("clam")
+            self.style.theme_use("clam")
         except tk.TclError:
             pass
-        style.configure("Start.TButton", background="#43a047", foreground="#ffffff", padding=(16, 6))
-        style.map("Start.TButton", background=[("active", "#2e7d32")])
-        style.configure("Stop.TButton", background="#e53935", foreground="#ffffff", padding=(16, 6))
-        style.map("Stop.TButton", background=[("active", "#b71c1c")])
+        self.style.configure("Start.TButton", background="#43a047", foreground="#ffffff", padding=(16, 6))
+        self.style.map("Start.TButton", background=[("active", "#2e7d32")])
+        self.style.configure("Stop.TButton", background="#e53935", foreground="#ffffff", padding=(16, 6))
+        self.style.map("Stop.TButton", background=[("active", "#b71c1c")])
 
         frame = ttk.Frame(self.root, padding=8)
         frame.pack(fill="both", expand=True)
 
         self.time_var = tk.StringVar(value="--:--")
-        tk.Label(frame, textvariable=self.time_var, font=("DejaVu Sans", 18, "bold")).pack(side="left")
+        self.time_label = tk.Label(frame, textvariable=self.time_var, font=("DejaVu Sans", 18, "bold"))
+        self.time_label.pack(side="left")
 
         self.status_var = tk.StringVar(value="Not watching")
-        tk.Label(frame, textvariable=self.status_var, font=("DejaVu Sans", 9)).pack(side="left", padx=(10, 0))
+        self.status_label = tk.Label(frame, textvariable=self.status_var, font=("DejaVu Sans", 9))
+        self.status_label.pack(side="left", padx=(10, 0))
 
         self.gear_btn = ttk.Button(frame, text="\u2699", width=2, command=self.pick_log)
         self.gear_btn.pack(side="right", padx=(0, 4))
+        self.moon_btn = ttk.Button(frame, text="\u263e", width=2, command=self.toggle_theme)
+        self.moon_btn.pack(side="right")
         self.toggle_btn = ttk.Button(frame, text="Start", style="Start.TButton", command=self.toggle)
         self.toggle_btn.pack(side="right", padx=(4, 0))
         self.toggle_btn.focus_set()
+        self._apply_theme()
 
     def start(self):
         if self.watching:
@@ -168,6 +186,20 @@ class GragnarApp:
 
     def toggle(self):
         self.start() if not self.watching else self.stop()
+
+    def toggle_theme(self):
+        self.dark = not self.dark
+        self._apply_theme()
+
+    def _apply_theme(self):
+        c = self.colors["dark" if self.dark else "light"]
+        self.current_colors = c
+        self.root.configure(bg=c["bg"])
+        self.style.configure("TFrame", background=c["bg"])
+        self.style.configure("TButton", background=c["btn"], foreground=c["fg"], padding=(6, 2))
+        self.style.map("TButton", background=[("active", c["btn_active"]), ("pressed", c["btn_active"])])
+        self.time_label.configure(bg=c["bg"], fg=c["fg"])
+        self.status_label.configure(bg=c["bg"], fg=c["muted"])
 
     def pick_log(self):
         path = filedialog.askopenfilename(
@@ -203,34 +235,44 @@ class GragnarApp:
             if self.deadline is not None:
                 rem = int(self.deadline - time.time())
                 self.time_var.set(fmt_time(max(rem, 0)))
-                if rem <= 0:
-                    self._alert()
+                if rem <= self.alert_early:
+                    self._alert(max(rem, 0))
         self.root.after(250, self._poll)
 
-    def _alert(self):
+    def _alert(self, rem):
         if self.alert_open:
             return
         self.alert_open = True
-        self.time_var.set("00:00")
-        self.status_var.set("KING GRAGNARR IS UP!")
-        self.root.title("!!! KING GRAGNARR IS UP !!!")
+        self.time_var.set(fmt_time(max(rem, 0)))
+        self.status_var.set(f"KING GRAGNARR IN {self.alert_early} SECONDS!")
+        self.root.title("!!! KING GRAGNARR IN 20 SECONDS !!!")
         self.stop_sound = threading.Event()
         self.sound_thread = threading.Thread(target=self._sound_loop, daemon=True)
         self.sound_thread.start()
         print("[gragnar] ALERT - timer done", flush=True)
 
+        c = self.current_colors
         dlg = tk.Toplevel(self.root)
         self.alert_dialog = dlg
         dlg.title("King Gragnarr!")
         dlg.transient(self.root)
         dlg.attributes("-topmost", True)
         dlg.resizable(False, False)
-        tk.Label(dlg, text="KING GRAGNARR IS UP", font=("DejaVu Sans", 18, "bold"), fg="#b71c1c").pack(
-            padx=28, pady=(20, 4)
-        )
-        tk.Label(dlg, text=f"{self.alert_seconds // 60} minutes have passed since the kill.", font=("DejaVu Sans", 11)).pack(
-            pady=(0, 14)
-        )
+        dlg.configure(bg=c["bg"])
+        tk.Label(
+            dlg,
+            text=f"KING GRAGNARR IN {self.alert_early} SECONDS",
+            font=("DejaVu Sans", 18, "bold"),
+            fg="#e5484d",
+            bg=c["bg"],
+        ).pack(padx=28, pady=(20, 4))
+        tk.Label(
+            dlg,
+            text=f"{self.alert_seconds // 60} minutes have passed since the kill - get ready!",
+            font=("DejaVu Sans", 11),
+            fg=c["fg"],
+            bg=c["bg"],
+        ).pack(pady=(0, 14))
         ok = ttk.Button(dlg, text="OK", command=self.dismiss_alert)
         ok.pack(pady=(0, 18))
         dlg.protocol("WM_DELETE_WINDOW", self.dismiss_alert)
@@ -267,10 +309,11 @@ class GragnarApp:
 
     def _cleanup(self):
         self._stop_sound()
-        try:
-            os.unlink(self.wav_path)
-        except OSError:
-            pass
+        if self._owns_wav:
+            try:
+                os.unlink(self.wav_path)
+            except OSError:
+                pass
 
 
 def main():
