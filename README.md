@@ -29,10 +29,11 @@ python3 kingtimer.py
 
 ## Log file
 
-Kingtimer ships with a default Project 1999 EQ log path
-(`~/.wine/drive_c/Program Files/Everquest_P99/Logs/eqlog_<char>_project1999.txt`).
-Use the gear button or `--log PATH` to point at your character's log. In a
-shell, quote paths that contain spaces or escape them (`Program\ Files`).
+You must associate a character's log file before the timer will run: click
+the gear and pick `eqlog_<char>_project1999.txt` from
+`~/.wine/drive_c/Program Files/Everquest_P99/Logs/`. The choice is saved in
+`~/.config/gragnar_timer.json` and reused. Until a log is picked, Start warns
+and does not start watching.
 
 ## How it works
 

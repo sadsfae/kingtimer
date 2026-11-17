@@ -15,9 +15,8 @@ import threading
 import time
 import tkinter as tk
 import wave
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
-DEFAULT_LOG = "/home/wfoster/.wine/drive_c/Program Files/Everquest_P99/Logs/eqlog_Aptom_project1999.txt"
 CONFIG_PATH = os.path.expanduser("~/.config/gragnar_timer.json")
 SOUND_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "alert.wav")
 
@@ -145,7 +144,9 @@ class GragnarApp:
         self.time_label = tk.Label(frame, textvariable=self.time_var, font=("DejaVu Sans", 18, "bold"))
         self.time_label.pack(side="left")
 
-        self.status_var = tk.StringVar(value="Not watching")
+        self.status_var = tk.StringVar(
+            value="No log file - click the gear to pick your character's log" if not self.log_path else "Not watching"
+        )
         self.status_label = tk.Label(frame, textvariable=self.status_var, font=("DejaVu Sans", 9))
         self.status_label.pack(side="left", padx=(10, 0))
 
@@ -160,6 +161,12 @@ class GragnarApp:
 
     def start(self):
         if self.watching:
+            return
+        if not self.log_path:
+            self.status_var.set("No log file - click the gear to pick your character's log")
+            messagebox.showwarning(
+                "No log file", "Pick your character's EQ log file with the gear button first."
+            )
             return
         if not os.path.exists(self.log_path):
             self.status_var.set("Log file not found - is EQ logging (/log)?")
@@ -206,9 +213,14 @@ class GragnarApp:
         self.status_label.configure(bg=c["bg"], fg=c["muted"])
 
     def pick_log(self):
+        log_dir = (
+            os.path.dirname(self.log_path)
+            if self.log_path
+            else os.path.expanduser("~/.wine/drive_c/Program Files/Everquest_P99/Logs")
+        )
         path = filedialog.askopenfilename(
             title="Select EQ log file",
-            initialdir=os.path.dirname(self.log_path),
+            initialdir=log_dir if os.path.isdir(log_dir) else None,
             filetypes=[("EQ logs", "eqlog_*.txt"), ("All files", "*.*")],
         )
         if path:
@@ -224,6 +236,8 @@ class GragnarApp:
                 self.offset = f.tell()
             if self.deadline is None:
                 self.status_var.set("Watching for the kill message...")
+        else:
+            self.status_var.set("Log set - press Start to watch")
 
     def _poll(self):
         if self.watching:
@@ -330,7 +344,7 @@ class GragnarApp:
 
 def main():
     parser = argparse.ArgumentParser(description="Alert 48 minutes after King Gragnarr is slain")
-    parser.add_argument("--log", default=load_log_config() or DEFAULT_LOG)
+    parser.add_argument("--log", default=load_log_config())
     parser.add_argument("--alert-seconds", type=int, default=2880)
     args = parser.parse_args()
     root = tk.Tk(className="gragnar_timer")
