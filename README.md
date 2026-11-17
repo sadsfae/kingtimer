@@ -12,8 +12,8 @@ the next kill.
 
 - Python 3 with tkinter (ships with most distro Pythons; Arch:
   `sudo pacman -S python tk`)
-- One playback tool for the alert sound: `paplay` (PipeWire/PulseAudio),
-  `aplay` (ALSA), or `play` (SoX)
+- One playback tool for the alert sound: `mpv` (preferred, loops the sound
+  seamlessly), or `paplay`/`aplay`/`play` (restarted in a loop)
 - Optional: `notify-send` or the Omarchy shell, so the alarm also pops a
   desktop notification (visible even over a fullscreen game)
 - Nothing else: everything is Python standard library, no pip packages
@@ -36,6 +36,8 @@ python3 kingtimer.py
 - Moon: toggle dark mode.
 - Stop: cancels the timer and the alert.
 - The alarm fires 20 seconds before the 48 minute respawn.
+- Killing Gragnarr again while the alarm plays stops the alarm, closes the
+  dialog, and restarts the 48 minute timer from the new kill.
 - `--alert-seconds N` shortens the countdown for testing (default 2880).
 - `--log PATH` overrides the log file.
 

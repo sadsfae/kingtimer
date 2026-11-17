@@ -61,6 +61,10 @@ def read_new(path, offset):
 
 
 def find_player():
+    if shutil.which("mpv"):
+        return ["mpv", "--no-video", "--loop-file=inf", "--really-quiet"]
+    if shutil.which("mplayer"):
+        return ["mplayer", "-loop", "0", "-really-quiet"]
     for cmd in (["paplay"], ["aplay", "-q"], ["play", "-q"]):
         if shutil.which(cmd[0]):
             return cmd
@@ -68,20 +72,19 @@ def find_player():
 
 
 def make_alarm_wav(path, rate=22050):
-    """C-E-G chime, ~1.5 s, looped by replaying."""
+    """Alternating two-tone alarm, ~2 s, loops seamlessly."""
     samples = []
 
-    def tone(freq, dur, vol=0.5):
+    def tone(freq, dur, vol=0.6):
         n = int(rate * dur)
-        fade = max(1, int(rate * 0.01))
+        fade = max(1, int(rate * 0.005))
         for i in range(n):
             env = min(1.0, i / fade, (n - i) / fade)
             samples.append(vol * env * math.sin(2 * math.pi * freq * i / rate))
 
-    tone(523.25, 0.18)
-    tone(659.25, 0.18)
-    tone(783.99, 0.32)
-    samples.extend([0.0] * int(rate * 0.8))
+    for _ in range(4):
+        tone(800.0, 0.25)
+        tone(1000.0, 0.25)
     with wave.open(path, "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
@@ -223,17 +226,19 @@ class GragnarApp:
                 self.status_var.set("Watching for the kill message...")
 
     def _poll(self):
-        if self.watching and not self.alert_open:
+        if self.watching:
             self.offset, lines = read_new(self.log_path, self.offset)
             for line in lines:
                 if "slain" in line and KILL_RE.search(line):
                     m = STAMP_RE.match(line)
                     stamp = m.group(1) if m else time.strftime("%H:%M:%S")
+                    if self.alert_open:
+                        self.dismiss_alert()
                     self.deadline = time.time() + self.alert_seconds
                     self.status_var.set(f"Slain at {stamp} - respawn in {fmt_time(self.alert_seconds)}")
                     print(f"[gragnar] slain detected at {stamp}", flush=True)
                     break
-            if self.deadline is not None:
+            if not self.alert_open and self.deadline is not None:
                 rem = int(self.deadline - time.time())
                 self.time_var.set(fmt_time(max(rem, 0)))
                 if rem <= self.alert_early:
