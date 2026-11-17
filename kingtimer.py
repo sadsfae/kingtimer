@@ -304,7 +304,7 @@ class GragnarApp:
         dlg.protocol("WM_DELETE_WINDOW", self.dismiss_alert)
         ok.focus_set()
         dlg.bind("<Return>", lambda e: self.dismiss_alert())
-        dlg.grab_set()
+
 
     def dismiss_alert(self):
         self._stop_sound()
